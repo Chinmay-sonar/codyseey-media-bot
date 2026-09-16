@@ -1,0 +1,15 @@
+{
+  "name": "codyseey-media-bot",
+  "version": "1.0.0",
+  "description": "Autonomous Telegram High-Res Media Extractor Bot running 24/7 on Cloud",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["telegram", "media-extractor", "bot", "high-resolution"],
+  "author": "Chinmay Sonar",
+  "license": "MIT"
+}

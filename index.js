@@ -20,6 +20,14 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`[HealthCheck] Server active on port ${PORT}`);
   console.log(`[Bot] Codyseey Media Bot is listening for links 24/7...`);
+
+  // KeepAlive: Ping external URL every 10 minutes to prevent Render free instance from sleeping
+  const pingUrl = process.env.RENDER_EXTERNAL_URL || 'https://codyseey-web-media-extractor.onrender.com';
+  setInterval(() => {
+    fetch(pingUrl)
+      .then(r => console.log(`[KeepAlive] Pinged ${pingUrl} (HTTP ${r.status}) - 24/7 active`))
+      .catch(e => console.log(`[KeepAlive] Ping sent:`, e.message));
+  }, 10 * 60 * 1000);
 });
 
 // Helper: Sleep
@@ -121,10 +129,20 @@ async function processLink(targetUrl, chatId) {
           console.log(`[Delivered] Album ${i + 1}/${result.totalAlbums} (${album.length} photos)`);
         } else {
           console.warn(`[Send Error] Album ${i + 1} failed:`, sendRes.description);
-          // Fallback: Try delivering valid photos individually if album had an unresolvable URL
-          for (const item of album) {
-            await tgRequest('sendPhoto', { chat_id: chatId, photo: item.media });
-            await sleep(400);
+          if (sendRes.error_code === 429 && sendRes.parameters && sendRes.parameters.retry_after) {
+            const waitSec = sendRes.parameters.retry_after;
+            console.log(`[RateLimit] Waiting ${waitSec}s before retrying album...`);
+            await sleep((waitSec + 1) * 1000);
+            const retryRes = await tgRequest('sendMediaGroup', { chat_id: chatId, media: album });
+            if (retryRes.ok) {
+              console.log(`[Delivered] Album ${i + 1}/${result.totalAlbums} delivered after wait!`);
+            }
+          } else {
+            // Fallback: Try delivering valid photos individually if album had an unresolvable URL
+            for (const item of album) {
+              await tgRequest('sendPhoto', { chat_id: chatId, photo: item.media });
+              await sleep(400);
+            }
           }
         }
       } else if (album.length === 1) {

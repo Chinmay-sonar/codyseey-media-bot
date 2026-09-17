@@ -1,0 +1,350 @@
+{
+  "name": "Universal High-Res Media Extractor Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "chat-trigger",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "interval": 3,
+        "unit": "seconds"
+      },
+      "id": "interval-trigger",
+      "name": "Telegram Polling Trigger",
+      "type": "n8n-nodes-base.interval",
+      "typeVersion": 1,
+      "position": [
+        100,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0/getUpdates",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "get-telegram-updates",
+      "name": "Get Telegram Updates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Extract URL & Chat ID from Telegram Poll OR n8n Chat Trigger\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  \n  // Case A: From Telegram getUpdates polling\n  if (data.ok && Array.isArray(data.result) && data.result.length > 0) {\n    for (const update of data.result) {\n      const msg = update.message;\n      if (msg && msg.text) {\n        const urlMatch = msg.text.match(/https?:\\/\\/[^\\s\"'<>]+/i);\n        results.push({\n          targetUrl: urlMatch ? urlMatch[0] : '',\n          chatId: String(msg.chat.id),\n          hasUrl: !!urlMatch,\n          updateId: update.update_id,\n          source: 'telegram_poll'\n        });\n      }\n    }\n  } \n  // Case B: From n8n Chat Trigger (When chat message received)\n  else if (data.chatInput || data.action || data.message) {\n    const rawText = data.chatInput || data.action || data.message || '';\n    const urlMatch = String(rawText).match(/https?:\\/\\/[^\\s\"'<>]+/i);\n    results.push({\n      targetUrl: urlMatch ? urlMatch[0] : '',\n      chatId: '5564412259',\n      hasUrl: !!urlMatch,\n      updateId: null,\n      source: 'n8n_chat'\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [];\n}\n\nreturn results.map(r => ({ json: r }));\n"
+      },
+      "id": "extract-clean-url",
+      "name": "Extract & Clean URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-url",
+              "leftValue": "={{ $json.hasUrl }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-url",
+      "name": "Has Valid URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.targetUrl }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 35000
+        },
+        "headers": {
+          "headers": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            },
+            {
+              "name": "Accept",
+              "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            }
+          ]
+        }
+      },
+      "id": "fetch-html",
+      "name": "Fetch Webpage (Desktop Emulation)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// --- UNIVERSAL MEDIA EXTRACTION & VISUAL SHOWCASE ENGINE v2 ---\n// HIGH-RES ONLY | NO TEXT | ALL IMAGES | BATCH ALBUMS\n\nfunction parseUrl(urlStr) {\n  if (!urlStr || typeof urlStr !== 'string') return null;\n  let str = urlStr.trim();\n  let proto = 'https://';\n  let rest = str;\n  if (str.startsWith('http://')) {\n    proto = 'http://';\n    rest = str.slice(7);\n  } else if (str.startsWith('https://')) {\n    proto = 'https://';\n    rest = str.slice(8);\n  } else if (str.startsWith('//')) {\n    proto = 'https://';\n    rest = str.slice(2);\n  }\n  let slashIdx = rest.indexOf('/');\n  let qIdx = rest.indexOf('?');\n  let hIdx = rest.indexOf('#');\n  let endHost = rest.length;\n  if (slashIdx !== -1 && slashIdx < endHost) endHost = slashIdx;\n  if (qIdx !== -1 && qIdx < endHost) endHost = qIdx;\n  if (hIdx !== -1 && hIdx < endHost) endHost = hIdx;\n  \n  let host = rest.slice(0, endHost);\n  let pathWithQuery = slashIdx !== -1 ? rest.slice(slashIdx) : '/';\n  let endPath = pathWithQuery.length;\n  let qP = pathWithQuery.indexOf('?');\n  let hP = pathWithQuery.indexOf('#');\n  if (qP !== -1 && qP < endPath) endPath = qP;\n  if (hP !== -1 && hP < endPath) endPath = hP;\n  let path = pathWithQuery.slice(0, endPath);\n  let pathParts = path.split('/');\n  pathParts.pop();\n  let basePath = pathParts.join('/') || '';\n  return { proto, host, origin: proto + host, basePath };\n}\n\n// ====================================================================\n// >>> HIGH-RES UPGRADE: Convert CMS-styled URLs to MAXIMUM full-res\n// ====================================================================\nfunction upgradeToHighRes(url) {\n  if (!url || typeof url !== 'string') return url;\n  \n  // Drupal: Upgrade style to maximum resolution style\n  // e.g. listing_teaser_slim_small -> listing_teaser_slim_extra_large_2x\n  // e.g. carousel_cards_plus -> carousel_cards_extra_large_2x\n  // e.g. media_text_side_by_side_x_wide -> media_text_side_by_side_x_wide_2x\n  if (url.includes('/sites/default/files/styles/')) {\n    return url.replace(/\\/styles\\/([^/]+)\\/public\\//, (match, style) => {\n      if (style.includes('carousel_cards')) {\n        return '/styles/carousel_cards_extra_large_2x/public/';\n      }\n      if (style.includes('listing_teaser')) {\n        return '/styles/listing_teaser_slim_extra_large_2x/public/';\n      }\n      if (style.includes('media_text')) {\n        return '/styles/media_text_side_by_side_x_wide_2x/public/';\n      }\n      if (!style.includes('2x')) {\n        return `/styles/${style}_2x/public/`;\n      }\n      return match;\n    });\n  }\n  \n  // WordPress: remove -WxH suffix before extension (e.g. image-1024x768.jpg → image.jpg)\n  const wpMatch = url.match(/-\\d+x\\d+(\\.(jpg|jpeg|png|webp))(\\?|$)/i);\n  if (wpMatch) {\n    return url.replace(/-\\d+x\\d+(\\.(jpg|jpeg|png|webp))/i, '$1');\n  }\n  \n  // Shopify/CDN: Remove _WxH or size params\n  if (url.includes('cdn.shopify.com')) {\n    return url.replace(/_\\d+x\\d*\\./g, '.').replace(/&width=\\d+/g, '').replace(/\\?width=\\d+/, '');\n  }\n  \n  // Squarespace: upgrade to 2500w max quality\n  if (url.includes('squarespace-cdn.com') || url.includes('images.squarespace-cdn.com')) {\n    return url.replace(/\\?format=\\d+w/i, '?format=2500w');\n  }\n\n  // Contentful: remove ?w=xxx&h=yyy\n  if (url.includes('ctfassets.net') || url.includes('contentful.com')) {\n    return url.replace(/\\?.*$/, '');\n  }\n\n  // Next.js: unpack inner URL\n  if (url.includes('/_next/image')) {\n    const match = url.match(/[?&]url=([^&]+)/);\n    if (match) {\n      try {\n        const decoded = decodeURIComponent(match[1]);\n        if (decoded.startsWith('http://') || decoded.startsWith('https://')) {\n          return decoded;\n        }\n      } catch (e) {}\n    }\n  }\n\n  // Decode HTML entities\n  url = url.replace(/&amp;/g, '&');\n\n  // Framer CDN (framerusercontent.com):\n  // Stripping all downscale query parameters (?scale-down-to=...&width=...) returns\n  // the 100% original full-resolution master image!\n  if (url.includes('framerusercontent.com/images/')) {\n    return url.split('?')[0];\n  }\n\n  // Webflow CDN (website-files.com): strip responsive downscaled thumbnails (-p-500, -p-800, etc.)\n  if (url.includes('website-files.com')) {\n    url = url.replace(/-p-\\d+(\\.(?:jpg|jpeg|png|webp|avif))(\\?|$)/i, '$1');\n  }\n\n  // Telegram Photo API ONLY supports jpg, jpeg, png, and webp (it rejects .avif with WEBPAGE_CURL_FAILED).\n  // Webflow & modern CDNs serve .jpg if .avif is replaced by .jpg.\n  if (url.includes('.avif')) {\n    url = url.replace(/\\.avif(\\?|$)/i, '.jpg$1');\n  }\n  \n  // Generic: strip downscaling params while preserving security tokens (like itok)\n  return url.replace(/([?&])(w|width|h|height|resize|crop)=[^&]*/gi, '$1')\n            .replace(/\\?&/, '?').replace(/\\?$/, '').replace(/&&+/g, '&');\n}\n\nfunction extractMediaFromHtml(html, targetUrl = '', chatId = '5564412259') {\n  if (!html || html.length < 50) {\n    return {\n      output: 'Could not load webpage content.',\n      chatId: chatId,\n      targetUrl: targetUrl,\n      albums: [],\n      videos: [],\n      hasAlbum: false,\n      hasVideos: false,\n      totalImages: 0,\n      totalVideos: 0,\n      totalAlbums: 0\n    };\n  }\n\n  let parsed = parseUrl(targetUrl);\n  if (!parsed || !parsed.host) {\n    const canMatch = html.match(/<link\\b[^>]*rel=[\"']canonical[\"'][^>]*href=[\"']([^\"']+)[\"']/i) ||\n                     html.match(/<meta\\b[^>]*property=[\"']og:url[\"'][^>]*content=[\"']([^\"']+)[\"']/i);\n    if (canMatch) parsed = parseUrl(canMatch[1]);\n  }\n  if (!parsed) parsed = { proto: 'https://', host: '', origin: '', basePath: '' };\n\n  function toAbsolute(link) {\n    if (!link || typeof link !== 'string') return null;\n    let clean = link.trim().replace(/^['\"\\s]+|['\"\\s]+$/g, '').replace(/\\\\/g, '').replace(/&amp;/g, '&');\n    if (!clean || clean.length < 4) return null;\n    if (clean.includes('about:blank') || clean.includes('javascript:') || clean.includes('void(0)')) return null;\n    if (clean.startsWith('data:') || clean.startsWith('blob:')) return null;\n    if (clean.includes('1x1') || clean.includes('blank.gif') || clean.includes('spacer.gif')) return null;\n\n    if (clean.startsWith('http://') || clean.startsWith('https://')) {\n      return clean;\n    }\n    if (clean.startsWith('//')) {\n      return parsed.proto + clean.slice(2);\n    }\n    if (clean.startsWith('/')) {\n      return parsed.origin ? (parsed.origin + clean) : ('https:/' + clean);\n    }\n    let relPath = clean.startsWith('./') ? clean.slice(2) : clean;\n    return parsed.origin + (parsed.basePath ? parsed.basePath + '/' : '/') + relPath;\n  }\n\n  const rawImages = new Set();\n  const rawVideos = new Set();\n  const videoPosters = new Map();\n\n  // 1. Img tags (Standard, Lazy, and Responsive)\n  const imgTagRegex = /<img\\b([^>]*)>/gi;\n  let tagMatch;\n  while ((tagMatch = imgTagRegex.exec(html)) !== null) {\n    const attrs = tagMatch[1];\n    const srcAttrRegex = /\\b(?:src|data-src|data-original|data-lazy|data-lazy-src|data-high-res|data-zoom-src|data-fallback-src)=[\"']([^\"']+)[\"']/gi;\n    let attrMatch;\n    while ((attrMatch = srcAttrRegex.exec(attrs)) !== null) {\n      const full = toAbsolute(attrMatch[1]);\n      if (full) rawImages.add(full);\n    }\n    const srcsetAttrRegex = /\\b(?:srcset|data-srcset|data-lazy-srcset)=[\"']([^\"']+)[\"']/gi;\n    let srcsetMatch;\n    while ((srcsetMatch = srcsetAttrRegex.exec(attrs)) !== null) {\n      const parts = srcsetMatch[1].split(',');\n      for (const p of parts) {\n        const candidate = p.trim().split(/\\s+/)[0];\n        const full = toAbsolute(candidate);\n        if (full) rawImages.add(full);\n      }\n    }\n  }\n\n  // 2. Picture & Source tags\n  const sourceRegex = /<source\\b([^>]*)>/gi;\n  while ((tagMatch = sourceRegex.exec(html)) !== null) {\n    const attrs = tagMatch[1];\n    const isVideo = attrs.toLowerCase().includes('video');\n    const srcRegex = /\\b(?:src|data-src)=[\"']([^\"']+)[\"']/gi;\n    let sm;\n    while ((sm = srcRegex.exec(attrs)) !== null) {\n      const full = toAbsolute(sm[1]);\n      if (full) {\n        if (isVideo || /\\.(mp4|webm|ogv|mov|m3u8)($|\\?)/i.test(full)) {\n          rawVideos.add(full);\n        } else {\n          rawImages.add(full);\n        }\n      }\n    }\n    const srcsetRegex = /\\b(?:srcset|data-srcset|data-lazy-srcset)=[\"']([^\"']+)[\"']/gi;\n    let ssm;\n    while ((ssm = srcsetRegex.exec(attrs)) !== null) {\n      const parts = ssm[1].split(',');\n      for (const p of parts) {\n        const candidate = p.trim().split(/\\s+/)[0];\n        const full = toAbsolute(candidate);\n        if (full) rawImages.add(full);\n      }\n    }\n  }\n\n  // 3. CSS Background Images\n  const bgRegex = /url\\(\\s*['\"]?([^'\")\\s]+)['\"]?\\s*\\)/gi;\n  let bgMatch;\n  while ((bgMatch = bgRegex.exec(html)) !== null) {\n    const candidate = bgMatch[1];\n    if (/\\.(jpg|jpeg|png|webp|avif|gif)($|\\?)/i.test(candidate)) {\n      const full = toAbsolute(candidate);\n      if (full) rawImages.add(full);\n    }\n  }\n\n  // 4. Meta tags (og:image, og:video, twitter)\n  const metaRegex = /<meta\\b[^>]*(?:property|name)=[\"'](og:image|og:image:secure_url|og:video|og:video:url|twitter:image|twitter:player)[\"'][^>]*content=[\"']([^\"']+)[\"']/gi;\n  let metaMatch;\n  while ((metaMatch = metaRegex.exec(html)) !== null) {\n    const type = metaMatch[1].toLowerCase();\n    const full = toAbsolute(metaMatch[2]);\n    if (full) {\n      if (type.includes('video') || type.includes('player')) {\n        rawVideos.add(full);\n      } else {\n        rawImages.add(full);\n      }\n    }\n  }\n\n  // 5. Video tags & Posters\n  const videoTagRegex = /<video\\b([^>]*)>/gi;\n  while ((tagMatch = videoTagRegex.exec(html)) !== null) {\n    const attrs = tagMatch[1];\n    const srcMatch = /\\bsrc=[\"']([^\"']+)[\"']/i.exec(attrs);\n    const posterMatch = /\\bposter=[\"']([^\"']+)[\"']/i.exec(attrs);\n    const posterFull = posterMatch ? toAbsolute(posterMatch[1]) : null;\n    if (posterFull) rawImages.add(posterFull);\n\n    if (srcMatch) {\n      const full = toAbsolute(srcMatch[1]);\n      if (full) {\n        rawVideos.add(full);\n        if (posterFull) videoPosters.set(full, posterFull);\n      }\n    }\n  }\n\n  // 6. Video Iframes (YouTube, Vimeo, oEmbed, etc.)\n  const iframeRegex = /<iframe\\b[^>]*\\bsrc=[\"']([^\"']+)[\"'][^>]*>/gi;\n  let ifrMatch;\n  while ((ifrMatch = iframeRegex.exec(html)) !== null) {\n    const src = ifrMatch[1];\n    if (['youtube.com', 'youtu.be', 'vimeo.com', 'wistia.com', 'tiktok.com', 'dailymotion.com', 'loom.com', 'oembed'].some(d => src.toLowerCase().includes(d))) {\n      const full = toAbsolute(src);\n      if (full) rawVideos.add(full);\n    }\n  }\n\n  // 7. Embedded JSON state & Script Blocks\n  const scriptSplitRegex = /<\\/script>/i;\n  const scriptBlocks = html.split(scriptSplitRegex);\n  const mediaUrlRegex = /https?:\\/\\/[^\"'\\s\\\\]+\\.(?:jpg|jpeg|png|webp|avif|gif|mp4|webm|m3u8)(?:\\?[^\"'\\s\\\\]*)?/gi;\n  for (const block of scriptBlocks) {\n    const lower = block.toLowerCase();\n    if (lower.includes('__next_data__') || lower.includes('application/ld+json') || lower.includes('drupalsettings') || lower.includes('window.')) {\n      const gt = block.indexOf('>');\n      if (gt !== -1) {\n        const rawScript = block.slice(gt + 1);\n        let jsonMedia;\n        while ((jsonMedia = mediaUrlRegex.exec(rawScript)) !== null) {\n          const url = jsonMedia[0].replace(/\\\\/g, '');\n          if (/\\.(mp4|webm|m3u8)($|\\?)/i.test(url)) {\n            rawVideos.add(url);\n          } else {\n            rawImages.add(url);\n          }\n        }\n      }\n    }\n  }\n\n  // --- INTELLIGENT MEDIA DEDUPLICATION & HIGHEST RESOLUTION SELECTION ---\n  function deduplicateMedia(urls) {\n    const upgraded = urls.map(u => upgradeToHighRes(u));\n    const uniqueMap = new Map();\n\n    function getScore(url) {\n      let score = 0;\n      const lower = url.toLowerCase();\n\n      // Prioritize maximum resolution versions\n      if (lower.includes('x_wide_2x') || lower.includes('x_wide')) score += 70;\n      if (lower.includes('extra_large_2x') || lower.includes('@3x') || lower.includes('3x') || lower.includes('2500w') || lower.includes('2048w') || lower.includes('3840w')) score += 60;\n      if (lower.includes('extra_large') || lower.includes('xlarge') || lower.includes('xxl') || lower.includes('@2x') || lower.includes('2x')) score += 40;\n      if (lower.includes('large_2x')) score += 30;\n      if (lower.includes('large') || lower.includes('high_res') || lower.includes('highres')) score += 20;\n      if (lower.includes('original') || lower.includes('master')) score += 30;\n      if (lower.includes('medium')) score += 10;\n      if (lower.includes('small') || lower.includes('thumb') || lower.includes('teaser')) score -= 30;\n\n      const wMatch = lower.match(/(?:[?&](?:w|width)=|[-_])(\\d{3,4})(?:[x&]|$)/);\n      if (wMatch) {\n        score += parseInt(wMatch[1], 10) / 100;\n      }\n\n      // Format preference\n      if (lower.includes('.jpg') || lower.includes('.jpeg')) score += 5;\n      if (lower.includes('.png')) score += 4;\n      if (lower.includes('.webp')) score += 3;\n\n      return score;\n    }\n\n    function getFingerprint(url) {\n      try {\n        if (url.includes('/_next/image')) {\n          const match = url.match(/[?&]url=([^&]+)/);\n          if (match) url = decodeURIComponent(match[1]);\n        }\n\n        const qIdx = url.indexOf('?');\n        const hIdx = url.indexOf('#');\n        let endPath = url.length;\n        if (qIdx !== -1) endPath = Math.min(endPath, qIdx);\n        if (hIdx !== -1) endPath = Math.min(endPath, hIdx);\n        \n        const pathOnly = url.slice(0, endPath);\n        const queryOnly = qIdx !== -1 ? url.slice(qIdx + 1, hIdx !== -1 ? hIdx : undefined) : '';\n\n        const hasExt = /\\.(jpg|jpeg|png|webp|avif|gif)$/i.test(pathOnly);\n        if (!hasExt) {\n          const cleanQuery = queryOnly.replace(/(?:w|width|h|height|size|quality|q)=\\d+&?/gi, '').replace(/&$/, '');\n          return (pathOnly + (cleanQuery ? '?' + cleanQuery : '')).toLowerCase();\n        }\n\n        let corePath = decodeURIComponent(pathOnly).toLowerCase();\n        \n        // Strip Drupal styles path BEFORE fingerprinting\n        corePath = corePath.replace(/\\/styles\\/[^/]+\\/public\\//, '/');\n        \n        const cmsMarkers = ['/public/', '/uploads/', '/wp-content/uploads/', '/media/', '/assets/images/', '/sites/default/files/'];\n        for (const marker of cmsMarkers) {\n          const idx = corePath.indexOf(marker);\n          if (idx !== -1) {\n            corePath = corePath.slice(idx + marker.length);\n            break;\n          }\n        }\n\n        const parts = corePath.split('/');\n        let filename = parts.pop() || '';\n        const folder = parts.join('/');\n\n        let base = filename.replace(/\\.(jpg|jpeg|png|webp|avif|gif)$/i, '');\n        base = base.replace(/[-_]\\d+x\\d*$/i, '');\n        base = base.replace(/[-_]\\d+x$/i, '');\n        base = base.replace(/[-_]?(?:thumb|thumbnail|small|medium|large|extra_large|xlarge|2x|3x)$/i, '');\n        base = base.replace(/@\\d+x$/i, '');\n        base = base.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n\n        return (folder ? folder + '/' : '') + base;\n      } catch (e) {\n        return url.toLowerCase();\n      }\n    }\n\n    for (const url of upgraded) {\n      const fp = getFingerprint(url);\n      const score = getScore(url);\n\n      if (!uniqueMap.has(fp)) {\n        uniqueMap.set(fp, { url, score });\n      } else {\n        const existing = uniqueMap.get(fp);\n        if (score > existing.score) {\n          uniqueMap.set(fp, { url, score });\n        }\n      }\n    }\n\n    return Array.from(uniqueMap.values()).map(item => item.url);\n  }\n\n  // Clean and format videos\n  function cleanVideo(rawVid) {\n    let cleanUrl = rawVid.trim();\n    if (cleanUrl.includes('oembed') && cleanUrl.includes('url=')) {\n      const match = cleanUrl.match(/[?&]url=([^&]+)/);\n      if (match) cleanUrl = decodeURIComponent(match[1]);\n    }\n\n    let thumb = videoPosters.get(rawVid) || null;\n    let title = 'Watch Video';\n\n    const vimeoMatch = cleanUrl.match(/vimeo\\.com\\/(?:video\\/)?(\\d+)/i);\n    if (vimeoMatch) {\n      const vimeoId = vimeoMatch[1];\n      cleanUrl = `https://vimeo.com/${vimeoId}`;\n      thumb = `https://vumbnail.com/${vimeoId}.jpg`;\n      title = 'Watch Video on Vimeo';\n    }\n\n    const ytMatch = cleanUrl.match(/(?:youtube\\.com\\/(?:watch\\?v=|embed\\/)|youtu\\.be\\/)([a-zA-Z0-9_-]{11})/i);\n    if (ytMatch) {\n      const ytId = ytMatch[1];\n      cleanUrl = `https://www.youtube.com/watch?v=${ytId}`;\n      thumb = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;\n      title = 'Watch Video on YouTube';\n    }\n\n    return { cleanUrl, thumb, title };\n  }\n\n  function deduplicateVideos(urls) {\n    const uniqueMap = new Map();\n    for (const rawUrl of urls) {\n      const videoObj = cleanVideo(rawUrl);\n      const key = videoObj.cleanUrl.toLowerCase().split('?')[0].split('#')[0];\n      if (!uniqueMap.has(key)) {\n        uniqueMap.set(key, videoObj);\n      }\n    }\n    return Array.from(uniqueMap.values());\n  }\n\n  const uniqueImages = deduplicateMedia(Array.from(rawImages));\n  const uniqueVideos = deduplicateVideos(Array.from(rawVideos));\n\n  // Filter: only raster images supported by Telegram Bot API (jpg, jpeg, png, webp)\n  // No SVGs, no unconverted AVIFs, no logos/icons/favicons/decorative brushes\n  const validPhotos = uniqueImages.filter(url => {\n    const lower = url.toLowerCase().split('?')[0];\n    if (lower.endsWith('.svg') || lower.endsWith('.avif')) return false;\n    if (lower.includes('logo') || lower.includes('icon') || lower.includes('favicon')) return false;\n    if (lower.includes('sprite') || lower.includes('arrow') || lower.includes('chevron')) return false;\n    if (lower.includes('/brushes/') || lower.includes('/brush/') || lower.includes('/divider/') || lower.includes('/separator/')) return false;\n    return /\\.(jpg|jpeg|png|webp)$/i.test(lower);\n  });\n\n  // ====================================================================\n  // >>> BUILD ALBUMS: Split ALL valid photos into batches of 2-10\n  // >>> NO TEXT CAPTIONS — pure media only\n  // ====================================================================\n  const BATCH_SIZE = 10;\n  const albums = [];\n  for (let i = 0; i < validPhotos.length; i += BATCH_SIZE) {\n    const batch = validPhotos.slice(i, i + BATCH_SIZE);\n    if (batch.length >= 2) {\n      const mediaGroup = batch.map(url => ({\n        type: 'photo',\n        media: url\n      }));\n      albums.push(mediaGroup);\n    } else if (batch.length === 1 && albums.length > 0) {\n      const lastAlbum = albums[albums.length - 1];\n      if (lastAlbum.length < 10) {\n        lastAlbum.push({ type: 'photo', media: batch[0] });\n      } else {\n        // Telegram requires at least 2 items per sendMediaGroup.\n        // Balance by moving 1 item from previous album so both have >= 2 items.\n        const borrowed = lastAlbum.pop();\n        albums.push([borrowed, { type: 'photo', media: batch[0] }]);\n      }\n    } else if (batch.length === 1 && albums.length === 0) {\n      albums.push([{ type: 'photo', media: batch[0] }]);\n    }\n  }\n\n  // Build video links (direct playable URLs)\n  const videoUrls = uniqueVideos.map(v => v.cleanUrl);\n\n  // Visual output for n8n chat UI\n  let visualShowcase = '';\n  for (const img of uniqueImages) {\n    visualShowcase += `![Image](${img})\\n\\n`;\n  }\n  for (const vid of uniqueVideos) {\n    if (vid.thumb) {\n      visualShowcase += `[![▶ ${vid.title}](${vid.thumb})](${vid.cleanUrl})\\n\\n`;\n    } else {\n      visualShowcase += `[▶ ${vid.title}](${vid.cleanUrl})\\n\\n`;\n    }\n  }\n  if (!visualShowcase.trim()) {\n    visualShowcase = 'No images or videos found on the provided webpage.';\n  }\n\n  return {\n    output: visualShowcase.trim(),\n    chatId: chatId,\n    targetUrl: targetUrl,\n    albums: albums,\n    videos: videoUrls,\n    hasAlbum: albums.length > 0,\n    hasVideos: uniqueVideos.length > 0,\n    totalImages: validPhotos.length,\n    totalVideos: uniqueVideos.length,\n    totalAlbums: albums.length\n  };\n}\n\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = { extractMediaFromHtml, upgradeToHighRes, parseUrl };\n}\n\n// Support n8n Code node execution:\nif (typeof $input !== 'undefined') {\n  const inputItem = $input.first().json;\n  const rawHtml = typeof inputItem.data === 'string' \n    ? inputItem.data \n    : (typeof inputItem === 'string' ? inputItem : JSON.stringify(inputItem));\n  let url = '';\n  let cid = '5564412259';\n  try {\n    const cleanNode = $('Extract & Clean URL').first().json;\n    url = cleanNode.targetUrl || '';\n    if (cleanNode.chatId) cid = String(cleanNode.chatId);\n  } catch (e) {}\n  return [{ json: extractMediaFromHtml(rawHtml, url, cid) }];\n}\n"
+      },
+      "id": "media-engine",
+      "name": "Universal Media Extractor & Showcase Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Format photo albums for native n8n HTTP Request iteration\nconst item = $input.first().json;\nconst albums = item.albums || [];\nconst chatId = item.chatId || '5564412259';\n\nif (albums.length === 0) {\n  return [];\n}\n\nreturn albums.map((album, idx) => ({\n  json: {\n    chat_id: chatId,\n    media: album,\n    albumIndex: idx + 1,\n    totalAlbums: albums.length,\n    isSingle: album.length === 1,\n    singlePhoto: album[0]?.media || ''\n  }\n}));\n"
+      },
+      "id": "format-albums",
+      "name": "Format Albums for Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0/sendMediaGroup",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $json.chat_id, media: $json.media } }}",
+        "options": {
+          "timeout": 25000
+        }
+      },
+      "id": "send-telegram-albums",
+      "name": "Send Photo Albums (Pure Media)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.first().json;\nconst videos = item.videos || [];\nconst chatId = item.chatId || '5564412259';\n\nif (videos.length === 0) {\n  return [];\n}\n\nreturn videos.map(vid => ({\n  json: {\n    chat_id: chatId,\n    text: vid\n  }\n}));\n"
+      },
+      "id": "format-videos",
+      "name": "Format Videos for Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: $json.chat_id, text: $json.text } }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "send-telegram-videos",
+      "name": "Send Videos to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        320
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.updateId ? 'https://api.telegram.org/bot8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0/getUpdates?offset=' + ($json.updateId + 1) : 'https://api.telegram.org/bot8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0/getMe' }}",
+        "options": {}
+      },
+      "id": "ack-telegram-offset",
+      "name": "Acknowledge Processed Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        440
+      ]
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Extract & Clean URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Polling Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Telegram Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Telegram Updates": {
+      "main": [
+        [
+          {
+            "node": "Extract & Clean URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract & Clean URL": {
+      "main": [
+        [
+          {
+            "node": "Has Valid URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Valid URL?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Webpage (Desktop Emulation)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Acknowledge Processed Messages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acknowledge Processed Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Webpage (Desktop Emulation)": {
+      "main": [
+        [
+          {
+            "node": "Universal Media Extractor & Showcase Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Universal Media Extractor & Showcase Engine": {
+      "main": [
+        [
+          {
+            "node": "Format Albums for Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format Videos for Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Albums for Telegram": {
+      "main": [
+        [
+          {
+            "node": "Send Photo Albums (Pure Media)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Videos for Telegram": {
+      "main": [
+        [
+          {
+            "node": "Send Videos to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

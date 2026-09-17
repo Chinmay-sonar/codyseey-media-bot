@@ -100,6 +100,16 @@ function upgradeToHighRes(url) {
     }
   }
 
+  // Decode HTML entities
+  url = url.replace(/&amp;/g, '&');
+
+  // Framer CDN (framerusercontent.com):
+  // Stripping all downscale query parameters (?scale-down-to=...&width=...) returns
+  // the 100% original full-resolution master image!
+  if (url.includes('framerusercontent.com/images/')) {
+    return url.split('?')[0];
+  }
+
   // Webflow CDN (website-files.com): strip responsive downscaled thumbnails (-p-500, -p-800, etc.)
   if (url.includes('website-files.com')) {
     url = url.replace(/-p-\d+(\.(?:jpg|jpeg|png|webp|avif))(\?|$)/i, '$1');
@@ -142,7 +152,7 @@ function extractMediaFromHtml(html, targetUrl = '', chatId = '5564412259') {
 
   function toAbsolute(link) {
     if (!link || typeof link !== 'string') return null;
-    let clean = link.trim().replace(/^['"\s]+|['"\s]+$/g, '').replace(/\\/g, '');
+    let clean = link.trim().replace(/^['"\s]+|['"\s]+$/g, '').replace(/\\/g, '').replace(/&amp;/g, '&');
     if (!clean || clean.length < 4) return null;
     if (clean.includes('about:blank') || clean.includes('javascript:') || clean.includes('void(0)')) return null;
     if (clean.startsWith('data:') || clean.startsWith('blob:')) return null;

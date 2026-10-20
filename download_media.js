@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { extractMediaFromHtml } = require('./engine.js');
+const { extractMediaFromHtml, extractMediaDeep } = require('./engine.js');
 
 async function downloadMedia(targetUrl, outputDir = './downloads') {
   if (!targetUrl) {
@@ -9,7 +9,7 @@ async function downloadMedia(targetUrl, outputDir = './downloads') {
   }
 
   console.log(`\n======================================================`);
-  console.log(`  CODYSEEY LOCAL MEDIA DOWNLOADER (Direct to Disk)`);
+  console.log(`  CODYSEEY DEEP PENETRATION MEDIA DOWNLOADER`);
   console.log(`  Target: ${targetUrl}`);
   console.log(`======================================================\n`);
 
@@ -29,7 +29,7 @@ async function downloadMedia(targetUrl, outputDir = './downloads') {
     }
 
     const html = await response.text();
-    const result = extractMediaFromHtml(html, targetUrl);
+    const result = await extractMediaDeep(html, targetUrl);
 
     let cleanHost = 'media_export';
     try {
@@ -42,19 +42,18 @@ async function downloadMedia(targetUrl, outputDir = './downloads') {
       fs.mkdirSync(saveDir, { recursive: true });
     }
 
-    console.log(`[INFO] Detected ${result.totalImages} high-res photos and ${result.totalVideos} videos.`);
+    const allPhotoUrls = result.allImages && result.allImages.length > 0 
+      ? result.allImages 
+      : result.albums.flatMap(a => a.map(i => i.media));
+
+    console.log(`[INFO] Deep Penetration uncovered ${allPhotoUrls.length} high-res photos and ${result.totalVideos} videos.`);
     console.log(`[INFO] Saving directly to folder: ${saveDir}\n`);
 
-    let savedCount = 0;
-    const allPhotoUrls = [];
-    for (const album of result.albums) {
-      for (const item of album) {
-        allPhotoUrls.push(item.media);
-      }
-    }
-
-    for (let i = 0; i < allPhotoUrls.length; i++) {
-      const imgUrl = allPhotoUrls[i];
+    let savedImgCount = 0;
+    // Download top 50 photos to prevent overwhelming the local drive
+    const downloadQueue = allPhotoUrls.slice(0, 50);
+    for (let i = 0; i < downloadQueue.length; i++) {
+      const imgUrl = downloadQueue[i];
       try {
         const imgRes = await fetch(imgUrl, { signal: AbortSignal.timeout(15000) });
         if (imgRes.ok) {
@@ -66,24 +65,43 @@ async function downloadMedia(targetUrl, outputDir = './downloads') {
           const fileName = `image_${String(i + 1).padStart(3, '0')}${ext}`;
           const filePath = path.join(saveDir, fileName);
           fs.writeFileSync(filePath, buffer);
-          savedCount++;
-          console.log(`  [${savedCount}/${allPhotoUrls.length}] Downloaded: ${fileName} (${Math.round(buffer.length / 1024)} KB)`);
-        } else {
-          console.warn(`  [SKIP] HTTP ${imgRes.status} on ${imgUrl}`);
+          savedImgCount++;
+          console.log(`  [IMG ${savedImgCount}/${downloadQueue.length}] ${fileName} (${Math.round(buffer.length / 1024)} KB)`);
         }
       } catch (e) {
-        console.warn(`  [ERROR] Failed to fetch image ${i + 1}: ${e.message}`);
+        console.warn(`  [SKIP] Image ${i + 1} (${e.message})`);
       }
     }
 
+    // Download direct MP4 / WebM video files
+    let savedVidCount = 0;
     if (result.videos && result.videos.length > 0) {
+      console.log(`\n[INFO] Downloading direct video files (top 5)...`);
+      const directVideos = result.videos.filter(v => /\.(mp4|webm)/i.test(v)).slice(0, 5);
+      for (let j = 0; j < directVideos.length; j++) {
+        const vidUrl = directVideos[j];
+        try {
+          const vRes = await fetch(vidUrl, { signal: AbortSignal.timeout(35000) });
+          if (vRes.ok) {
+            const vBuf = Buffer.from(await vRes.arrayBuffer());
+            const ext = path.extname(vidUrl.split('?')[0]) || '.mp4';
+            const vName = `video_${String(j + 1).padStart(2, '0')}${ext}`;
+            fs.writeFileSync(path.join(saveDir, vName), vBuf);
+            savedVidCount++;
+            console.log(`  [VID ${savedVidCount}] Downloaded: ${vName} (${Math.round(vBuf.length / (1024 * 1024) * 10) / 10} MB)`);
+          }
+        } catch (e) {
+          console.warn(`  [SKIP] Video ${j + 1} (${e.message})`);
+        }
+      }
+
       const vidFile = path.join(saveDir, 'video_urls.txt');
       fs.writeFileSync(vidFile, result.videos.join('\n'), 'utf8');
-      console.log(`\n  [VIDEOS] Saved ${result.videos.length} video stream URLs to video_urls.txt`);
+      console.log(`  [LINKS] Saved all ${result.videos.length} video streams to video_urls.txt`);
     }
 
     console.log(`\n======================================================`);
-    console.log(`  SUCCESS! ${savedCount} high-res media files saved!`);
+    console.log(`  SUCCESS! Downloaded ${savedImgCount} photos + ${savedVidCount} videos!`);
     console.log(`  Folder: ${saveDir}`);
     console.log(`======================================================\n`);
   } catch (err) {
@@ -93,3 +111,4 @@ async function downloadMedia(targetUrl, outputDir = './downloads') {
 
 const target = process.argv[2];
 downloadMedia(target);
+

@@ -121,6 +121,11 @@ function upgradeToHighRes(url) {
     url = url.replace(/\.avif(\?|$)/i, '.jpg$1');
   }
   
+  // Azure CDN / Strapi (SpaceX, etc.): Strip large_, medium_, small_, thumbnail_ prefixes for 100% full master
+  if (url.includes('azureedge.us/cms-assets/assets/')) {
+    url = url.replace(/\/(?:large|medium|small|thumbnail)_/g, '/');
+  }
+
   // Generic: strip downscaling params while preserving security tokens (like itok)
   return url.replace(/([?&])(w|width|h|height|resize|crop)=[^&]*/gi, '$1')
             .replace(/\?&/, '?').replace(/\?$/, '').replace(/&&+/g, '&');
@@ -525,8 +530,145 @@ function extractMediaFromHtml(html, targetUrl = '', chatId = '5564412259') {
   };
 }
 
+// ====================================================================
+// >>> DEEP PENETRATION ENGINE v3: Multi-Stage SPA / CMS / Bundle Mining
+// ====================================================================
+async function extractMediaDeep(html, targetUrl = '', chatId = '5564412259') {
+  // 1. Initial baseline extract from HTML
+  const baseResult = extractMediaFromHtml(html, targetUrl, chatId);
+  
+  const rawImages = new Set();
+  const rawVideos = new Set();
+  
+  for (const a of baseResult.albums) {
+    for (const item of a) rawImages.add(item.media);
+  }
+  for (const v of baseResult.videos) rawVideos.add(v);
+
+  let parsed = null;
+  try { parsed = new URL(targetUrl); } catch (_) {}
+  const origin = parsed ? parsed.origin : '';
+
+  // 2. Deep Script & CSS Bundle Scraping
+  if (html && origin) {
+    const scriptMatches = [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["']/gi)].map(m => m[1]);
+    const styleMatches = [...html.matchAll(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi)].map(m => m[1]);
+    const bundleUrls = [...scriptMatches, ...styleMatches].map(u => {
+      if (u.startsWith('http://') || u.startsWith('https://')) return u;
+      if (u.startsWith('//')) return (parsed ? parsed.protocol : 'https:') + u;
+      if (u.startsWith('/')) return origin + u;
+      return origin + '/' + u;
+    }).filter(u => !u.includes('analytics') && !u.includes('gtag') && !u.includes('facebook') && !u.includes('clarity'));
+
+    for (const bUrl of bundleUrls.slice(0, 10)) {
+      try {
+        const bRes = await fetch(bUrl, { signal: AbortSignal.timeout(4000) });
+        if (bRes.ok) {
+          const text = await bRes.text();
+          const mediaUrls = text.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|avif|mp4|webm|m3u8)(?:\?[^\s"'<>]*)?/gi) || [];
+          for (const m of mediaUrls) {
+            if (/\.(mp4|webm|m3u8)/i.test(m)) rawVideos.add(m);
+            else rawImages.add(m);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 3. Headless CMS & Dynamic APIs (SpaceX, Strapi, WordPress)
+  if (targetUrl.includes('spacex.com')) {
+    const endpoints = [
+      'https://content.spacex.com/api/spacex-website/homepage-tiles',
+      'https://content.spacex.com/api/spacex-website/featured-launch-tiles',
+      'https://content.spacex.com/api/spacex-website/media-playlist',
+      'https://content.spacex.com/api/spacex-website/pad-photos',
+      'https://content.spacex.com/api/spacex-website/updates'
+    ];
+    for (const ep of endpoints) {
+      try {
+        const epRes = await fetch(ep, { signal: AbortSignal.timeout(5000) });
+        if (epRes.ok) {
+          const jsonText = await epRes.text();
+          const matches = jsonText.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|mp4|webm)/gi) || [];
+          for (const m of matches) {
+            if (/\.(mp4|webm)/i.test(m)) rawVideos.add(m);
+            else rawImages.add(m);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // WordPress REST API Probe
+  if (origin) {
+    try {
+      const wpRes = await fetch(`${origin}/wp-json/wp/v2/media?per_page=30`, { signal: AbortSignal.timeout(3500) });
+      if (wpRes.ok) {
+        const mediaList = await wpRes.json();
+        if (Array.isArray(mediaList)) {
+          for (const item of mediaList) {
+            if (item.source_url) rawImages.add(item.source_url);
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 4. Jina Headless DOM fallback (if < 5 images or page is Angular/React SPA)
+  if (rawImages.size < 5 || (html && html.length < 8000)) {
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/${targetUrl}`, { signal: AbortSignal.timeout(10000) });
+      if (jinaRes.ok) {
+        const markdown = await jinaRes.text();
+        const jinaImages = markdown.match(/https?:\/\/[^\s"'\)<>]+\.(?:jpg|jpeg|png|webp|avif)/gi) || [];
+        for (const img of jinaImages) rawImages.add(img);
+      }
+    } catch (_) {}
+  }
+
+  // 5. Upgrade & Filter
+  const upgradedPhotos = [...rawImages].map(u => upgradeToHighRes(u)).filter(url => {
+    const lower = url.toLowerCase().split('?')[0];
+    if (lower.endsWith('.svg') || lower.endsWith('.avif')) return false;
+    if (lower.includes('favicon') || lower.includes('spacer') || lower.includes('blank.gif')) return false;
+    return /\.(jpg|jpeg|png|webp)$/i.test(lower);
+  });
+
+  const uniquePhotos = [...new Set(upgradedPhotos)];
+  const uniqueVideos = [...new Set(rawVideos)];
+
+  // 6. Build Albums (Deliver up to 30 top photos to Telegram to respect rate limits)
+  const BATCH_SIZE = 10;
+  const albums = [];
+  const photosForTelegram = uniquePhotos.slice(0, 30);
+  for (let i = 0; i < photosForTelegram.length; i += BATCH_SIZE) {
+    const batch = photosForTelegram.slice(i, i + BATCH_SIZE);
+    if (batch.length >= 2) {
+      albums.push(batch.map(url => ({ type: 'photo', media: url })));
+    } else if (batch.length === 1 && albums.length > 0) {
+      albums[albums.length - 1].push({ type: 'photo', media: batch[0] });
+    } else if (batch.length === 1) {
+      albums.push([{ type: 'photo', media: batch[0] }]);
+    }
+  }
+
+  return {
+    output: baseResult.output,
+    chatId: chatId,
+    targetUrl: targetUrl,
+    albums: albums,
+    videos: uniqueVideos,
+    hasAlbum: albums.length > 0,
+    hasVideos: uniqueVideos.length > 0,
+    totalImages: uniquePhotos.length,
+    totalVideos: uniqueVideos.length,
+    totalAlbums: albums.length,
+    allImages: uniquePhotos
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { extractMediaFromHtml, upgradeToHighRes, parseUrl };
+  module.exports = { extractMediaFromHtml, extractMediaDeep, upgradeToHighRes, parseUrl };
 }
 
 // Support n8n Code node execution:

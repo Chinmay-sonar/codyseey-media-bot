@@ -1,5 +1,5 @@
 const http = require('http');
-const { extractMediaFromHtml } = require('./engine.js');
+const { extractMediaFromHtml, extractMediaDeep } = require('./engine.js');
 
 // Load local .env if available
 const fs = require('fs');
@@ -145,7 +145,7 @@ async function processLink(targetUrl, chatId) {
     }
 
     const html = await response.text();
-    const result = extractMediaFromHtml(html, targetUrl, String(chatId));
+    const result = await extractMediaDeep(html, targetUrl, String(chatId));
 
     console.log(`[Extracted] Found ${result.totalImages} images (${result.totalAlbums} albums), ${result.totalVideos} videos`);
 
@@ -187,13 +187,23 @@ async function processLink(targetUrl, chatId) {
       await sleep(800); // Respect Telegram rate limits
     }
 
-    // Deliver Video Links
-    for (const videoUrl of result.videos) {
-      await tgRequest('sendMessage', {
-        chat_id: chatId,
-        text: videoUrl
-      });
-      await sleep(500);
+    // Deliver Video Streams & Links
+    if (result.videos.length > 0) {
+      const topVideos = result.videos.slice(0, 5);
+      for (const videoUrl of topVideos) {
+        await tgRequest('sendMessage', {
+          chat_id: chatId,
+          text: `🎬 Video Stream:\n${videoUrl}`
+        });
+        await sleep(500);
+      }
+      if (result.videos.length > 5) {
+        const remaining = result.videos.slice(5, 15).map((v, idx) => `${idx + 6}. ${v}`).join('\n');
+        await tgRequest('sendMessage', {
+          chat_id: chatId,
+          text: `🎥 Additional Extracted Videos (${result.videos.length} total):\n\n${remaining}`
+        });
+      }
     }
 
     console.log(`[Complete] Finished processing ${targetUrl}`);

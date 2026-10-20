@@ -39,6 +39,16 @@ const server = http.createServer((req, res) => {
   }));
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const nextPort = Number(PORT) + 1;
+    console.warn(`[HealthCheck] Port ${PORT} occupied, trying fallback port ${nextPort}...`);
+    server.listen(nextPort);
+  } else {
+    console.error('[HealthCheck] Server error:', err.message);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`[HealthCheck] Server active on port ${PORT}`);
   console.log(`[Bot] Codyseey Media Bot is listening for links 24/7...`);

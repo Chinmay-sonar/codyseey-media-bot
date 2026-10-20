@@ -1,8 +1,30 @@
 const http = require('http');
 const { extractMediaFromHtml } = require('./engine.js');
 
+// Load local .env if available
+const fs = require('fs');
+if (fs.existsSync('.env')) {
+  try {
+    const envContent = fs.readFileSync('.env', 'utf8');
+    for (const line of envContent.split('\n')) {
+      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (match) {
+        const key = match[1];
+        let val = (match[2] || '').trim();
+        if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+        if (val.startsWith("'") && val.endsWith("'")) val = val.slice(1, -1);
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+  } catch (_) {}
+}
+
 // Configuration
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8803662701:AAFz3AcMvJCDHNyIiL4zxmO4yiItPNOgvU0';
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error('[CRITICAL] Missing TELEGRAM_BOT_TOKEN! Set it in your .env file or cloud environment variables.');
+  process.exit(1);
+}
 const TG_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const PORT = process.env.PORT || 3000;
 
